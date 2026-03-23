@@ -3,7 +3,7 @@
 
 #define EPSILON 1e-12
 #define K_BOLTZMAN 1.38064852e-23 // Boltzmann constant in J/K
-#define REF_POWER 1e-3 //for dBm
+#define REF_POWER 1.0 // for dBW
 
 double db_to_linear(double db);
 double linear_to_db(double val);

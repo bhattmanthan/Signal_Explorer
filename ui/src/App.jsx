@@ -7,14 +7,16 @@ const MEDIUMS = [
 ];
 
 function App() {
-  const [distance, setDistance] = useState(10); // km
+  const [distance, setDistance] = useState(30); // km
   const [temperature, setTemperature] = useState(25); // Celsius
-  const [bandwidth, setBandwidth] = useState(20); // MHz
+  const [bandwidth, setBandwidth] = useState(1000); // MHz
   const [levels, setLevels] = useState(4); // signal levels
-  const [inputPowerDb, setInputPowerDb] = useState(-30); // dBW
+  const [inputPowerDb, setInputPowerDb] = useState(-80); // dBW
   const [mediumIdx, setMediumIdx] = useState(0); // 0 or 1
   
-  const [visualNoiseScale, setVisualNoiseScale] = useState(20);
+  const [visualNoiseScale, setVisualNoiseScale] = useState(2);
+  const [isPaused, setIsPaused] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1.0);
 
   const [results, setResults] = useState({
     receivedPower: 0,
@@ -84,25 +86,41 @@ function App() {
     const cleanPoints = [];
     const noisyPoints = [];
     
-    const baseAmp = 60; 
+    let powerScale = 1.0 + (inputPowerDb / 150);
+    if (powerScale < 0.2) powerScale = 0.2; 
+    const baseAmp = 60 * powerScale; 
     
-    // FIX: Instead of scaling the amplitude heavily down to 0 (which makes it look like a flat line),
-    // we keep the received wave amplitude visually large (75% of base) so you can clearly see the sinusoidal shape.
-    let rxAmp = baseAmp * 0.75; 
+    const inputPowerW = Math.pow(10, inputPowerDb / 10);
+    // Calculate the real physical attenuation
+    let attenuationRatio = results.receivedPower / inputPowerW;
+    if(!isFinite(attenuationRatio) || attenuationRatio < 1e-10) attenuationRatio = 1e-10;
+    if(attenuationRatio > 1) attenuationRatio = 1;
+    
+    // We dampen the shrinkage slightly using power(0.4) so massive attenuation still leaves a viewable tiny wave,
+    // but the user will visibly see the wave shrink as distance increases!
+    let rxAmp = baseAmp * Math.pow(attenuationRatio, 0.4); 
+    if (rxAmp < 3) rxAmp = 3; // hard floor so it never disappears to 0px
+
     
     let snrLinear = results.snr;
     if (!isFinite(snrLinear)) snrLinear = 1e9;
     
+    // Strict physics scale: base thermal noise
     let noiseLevel = rxAmp / Math.sqrt(snrLinear);
     
+    // Artificial visual amplification
     let visualMultiplier = Math.pow(visualNoiseScale, 3);
     noiseLevel = noiseLevel * visualMultiplier;
     
     if (noiseLevel > rxAmp * 1.5) noiseLevel = rxAmp * 1.5;
     if (noiseLevel > 80) noiseLevel = 80;
 
+    // Enforce an even number of cycles so the SVG CSS translation loops seamlessly without snapping!
+    let rawCycles = 2 + Math.pow(bandwidth / 5000, 0.4) * 15;
+    let cycles = Math.max(2, Math.round(rawCycles / 2) * 2);
+
     for (let i = 0; i <= maxPoints; i++) {
-        const x = (i / maxPoints) * Math.PI * 8; 
+        const x = (i / maxPoints) * Math.PI * 2 * cycles; 
         const yClean = Math.sin(x) * baseAmp;
         const yRxClean = Math.sin(x) * rxAmp;
         
@@ -155,8 +173,8 @@ function App() {
           </div>
 
           <div className="control-group">
-            <label>Signal Levels (M) <span className="val">{levels}</span></label>
-            <input type="range" min="2" max="256" step="2" value={levels} onChange={e => setLevels(Number(e.target.value))} />
+            <label>Signal Levels (M = 2^n) <span className="val">{levels} (n={Math.log2(levels)})</span></label>
+            <input type="range" min="1" max="8" step="1" value={Math.log2(levels)} onChange={e => setLevels(Math.pow(2, Number(e.target.value)))} />
           </div>
 
           <div className="control-group">
@@ -211,33 +229,44 @@ function App() {
           </div>
 
           <div className="glass-panel" style={{padding: '1.5rem'}}>
-             <h2 className="panel-title" style={{border: 'none', marginBottom: '1rem'}}>
-                Live Spectrum Oscilloscope
+             <h2 className="panel-title" style={{border: 'none', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                <span>Live Spectrum Oscilloscope</span>
+                <div style={{display: 'flex', gap: '1.5rem', fontSize: '0.9rem', fontWeight: '500', color: 'var(--text-muted)'}}>
+                   <label style={{display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer'}}>
+                     <input type="checkbox" checked={isPaused} onChange={e => setIsPaused(e.target.checked)} style={{accentColor: 'var(--accent)', cursor: 'pointer'}} />
+                     PAUSE
+                   </label>
+                   <label style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                     <span style={{letterSpacing: '0.05em'}}>ZOOM:</span>
+                     <input type="range" min="0.5" max="4.0" step="0.1" value={zoomLevel} onChange={e => setZoomLevel(Number(e.target.value))} style={{width: '70px', marginTop: 0}}/>
+                     <span style={{width: '35px', textAlign: 'right', fontFamily: 'monospace'}}>{zoomLevel.toFixed(1)}x</span>
+                   </label>
+                </div>
              </h2>
              <div className="waveform-container">
-                <svg className="waveform-svg" viewBox="0 0 200 320" preserveAspectRatio="none">
+                <svg className="waveform-svg" viewBox={`${100 - (100/zoomLevel)} ${160 - (160/zoomLevel)} ${200/zoomLevel} ${320/zoomLevel}`} preserveAspectRatio="none">
                     <defs>
-                      <linearGradient id="gradSignal" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" style={{stopColor: '#38bdf8', stopOpacity: 0.8}} />
-                        <stop offset="100%" style={{stopColor: '#818cf8', stopOpacity: 0.8}} />
-                      </linearGradient>
-                      <filter id="glow">
-                        <feGaussianBlur stdDeviation="0.8" result="coloredBlur"/>
-                        <feMerge>
-                          <feMergeNode in="coloredBlur"/>
-                          <feMergeNode in="SourceGraphic"/>
-                        </feMerge>
-                      </filter>
+                      <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                        <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="0.5"/>
+                      </pattern>
+                      <pattern id="grid-major" width="100" height="100" patternUnits="userSpaceOnUse">
+                        <rect width="100" height="100" fill="url(#grid)" />
+                        <path d="M 100 0 L 0 0 0 100" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1"/>
+                      </pattern>
                     </defs>
-                    <g className="wave-group">
-                        <polyline points={waves.cleanPath} fill="none" stroke="rgba(56, 189, 248, 0.4)" strokeWidth="1.2" strokeDasharray="5 5" />
-                        <polyline points={waves.noisyPath} fill="none" stroke="url(#gradSignal)" strokeWidth="1.5" filter="url(#glow)"/>
+
+                    <rect width="1000" height="1000" x="-500" y="-500" fill="url(#grid-major)" />
+                    <line x1="-500" y1="160" x2="500" y2="160" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
+
+                    <g className="wave-group" style={{ animationPlayState: isPaused ? 'paused' : 'running' }}>
+                        <polyline points={waves.cleanPath} fill="none" stroke="rgba(255, 255, 255, 0.4)" strokeWidth="1.2" strokeDasharray="4 4" />
+                        <polyline points={waves.noisyPath} fill="none" stroke="#22d3ee" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                     </g>
                 </svg>
              </div>
              <div className="legend">
-                <div className="legend-item"><div className="legend-color" style={{background: 'rgba(56, 189, 248, 0.3)'}}></div> Source Amplitude (Reference)</div>
-                <div className="legend-item"><div className="legend-color" style={{background: 'linear-gradient(to right, #38bdf8, #818cf8)'}}></div> Realized Signal + Boosted Noise</div>
+                <div className="legend-item"><div className="legend-color" style={{background: 'rgba(255, 255, 255, 0.4)'}}></div> Source (Reference)</div>
+                <div className="legend-item"><div className="legend-color" style={{background: '#22d3ee'}}></div> Received Signal (+ True Noise)</div>
              </div>
           </div>
           </>)}
