@@ -272,6 +272,10 @@ function App() {
           </>)}
         </div>
       </div>
+      
+      <div style={{ textAlign: 'center', marginTop: '2rem', paddingBottom: '1rem', color: 'rgba(255, 255, 255, 0.5)', fontSize: '0.9rem', letterSpacing: '0.05em', fontFamily: 'monospace' }}>
+        Made by Manthan Bhatt & Meet Mulani 
+      </div>
     </div>
   );
 }

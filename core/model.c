@@ -2,8 +2,6 @@
 #include "model.h"
 #include <math.h>
 
-// #define TWISTED_PAIR (Medium){"Twisted Pair", 0.2, 100e6}
-// #define FIBER_OPTIC (Medium){"Fiber Optic", 0.05, 10e9}
 Medium TWISTED_PAIR={"Twisted Pair",0.2,100e6};
 Medium FIBER_OPTIC={"Fiber Optic",0.05,10e9};
 double calc_attenuation(double P0,double alpha_db,double distance){
@@ -31,6 +29,5 @@ double calc_nyquist(double bandwidth,int levels){
 
 double calc_shannon(double bandwidth,double snr){
     if (snr<EPSILON) return snr=EPSILON;
-    
     return bandwidth*log2(1+snr);
 }
